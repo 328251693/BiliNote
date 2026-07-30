@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+import shutil
+import subprocess
 import tempfile
 from abc import ABC
 from typing import Union, Optional, List
@@ -13,7 +15,7 @@ from app.downloaders.bilibili_subtitle import BilibiliSubtitleFetcher
 from app.models.notes_model import AudioDownloadResult
 from app.models.transcriber_model import TranscriptResult, TranscriptSegment
 from app.utils.path_helper import get_data_dir
-from app.utils.url_parser import extract_video_id
+from app.utils.url_parser import extract_video_id, extract_bilibili_p_number
 from app.services.cookie_manager import CookieConfigManager
 
 logger = logging.getLogger(__name__)
@@ -52,13 +54,30 @@ class BilibiliDownloader(Downloader, ABC):
         video_url: str,
         output_dir: Union[str, None] = None,
         quality: DownloadQuality = "fast",
-        need_video:Optional[bool]=False
+        need_video: Optional[bool] = False,
+        skip_download: bool = False,
     ) -> AudioDownloadResult:
         if output_dir is None:
             output_dir = get_data_dir()
         if not output_dir:
             output_dir=self.cache_data
         os.makedirs(output_dir, exist_ok=True)
+
+        # 不带 p 参数的多 P B 站视频，在没有字幕时也要把全部章节的音频合并后再转写。
+        # 需要视频截图/视频理解时仍沿用原流程，因为视频帧的章节时间轴还需要单独处理。
+        bvid = extract_video_id(video_url, "bilibili")
+        p = extract_bilibili_p_number(video_url)
+        if bvid and p is None and not need_video:
+            pages = BilibiliSubtitleFetcher().get_pages(bvid)
+            if len(pages) > 1:
+                return self._download_multi_page_audio(
+                    video_url=video_url,
+                    bvid=bvid,
+                    pages=pages,
+                    output_dir=output_dir,
+                    quality=quality,
+                    skip_download=skip_download,
+                )
 
         output_path = os.path.join(output_dir, "%(id)s.%(ext)s")
 
@@ -80,7 +99,7 @@ class BilibiliDownloader(Downloader, ABC):
             ydl_opts['cookiefile'] = self._cookiefile
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=True)
+            info = ydl.extract_info(video_url, download=not skip_download)
             video_id = info.get("id")
             title = info.get("title")
             duration = info.get("duration", 0)
@@ -97,6 +116,100 @@ class BilibiliDownloader(Downloader, ABC):
             raw_info=info,
             video_path=None  # ❗音频下载不包含视频路径
         )
+
+    def _download_multi_page_audio(
+        self,
+        video_url: str,
+        bvid: str,
+        pages: List[dict],
+        output_dir: str,
+        quality: DownloadQuality,
+        skip_download: bool,
+    ) -> AudioDownloadResult:
+        """下载并拼接多 P 音频；字幕已存在时只提取总视频元数据。"""
+        first_url = f"https://www.bilibili.com/video/{bvid}?p=1"
+        page_meta = []
+        offset = 0.0
+        for index, page in enumerate(pages, start=1):
+            duration = float(page.get("duration") or 0)
+            page_meta.append({
+                **page,
+                "p": int(page.get("page") or index),
+                "start_offset": offset,
+                "end_offset": offset + duration,
+            })
+            offset += duration
+        if skip_download:
+            ydl_opts = {
+                "skip_download": True,
+                "noplaylist": True,
+                "quiet": True,
+                "http_headers": {"Referer": "https://www.bilibili.com"},
+            }
+            if self._cookiefile:
+                ydl_opts["cookiefile"] = self._cookiefile
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(first_url, download=False)
+            return AudioDownloadResult(
+                file_path="",
+                title=info.get("title") or bvid,
+                duration=sum(float(page.get("duration") or 0) for page in pages),
+                cover_url=info.get("thumbnail"),
+                platform="bilibili",
+                video_id=bvid,
+                raw_info={**info, "bili_pages": page_meta},
+                video_path=None,
+            )
+
+        temp_dir = tempfile.mkdtemp(prefix=f"{bvid}_pages_", dir=output_dir)
+        audio_files = []
+        try:
+            for index, _page in enumerate(pages, start=1):
+                page_url = f"https://www.bilibili.com/video/{bvid}?p={index}"
+                page_output = os.path.join(temp_dir, f"page_{index}.%(ext)s")
+                ydl_opts = {
+                    "format": "bestaudio[ext=m4a]/bestaudio/best",
+                    "outtmpl": page_output,
+                    "http_headers": {"Referer": "https://www.bilibili.com"},
+                    "postprocessors": [{
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": QUALITY_MAP.get(quality, "64"),
+                    }],
+                    "noplaylist": True,
+                    "quiet": False,
+                }
+                if self._cookiefile:
+                    ydl_opts["cookiefile"] = self._cookiefile
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.extract_info(page_url, download=True)
+                audio_path = os.path.join(temp_dir, f"page_{index}.mp3")
+                if not os.path.exists(audio_path):
+                    raise FileNotFoundError(f"第 {index} 个分 P 音频未生成: {audio_path}")
+                audio_files.append(audio_path)
+
+            final_audio = os.path.join(output_dir, f"{bvid}.mp3")
+            concat_list = os.path.join(temp_dir, "concat.txt")
+            with open(concat_list, "w", encoding="utf-8") as f:
+                for audio_file in audio_files:
+                    f.write(f"file '{audio_file.replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n")
+            subprocess.run([
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", concat_list, "-c", "copy", final_audio,
+            ], check=True, capture_output=True)
+
+            return AudioDownloadResult(
+                file_path=final_audio,
+                title=bvid,
+                duration=sum(float(page.get("duration") or 0) for page in pages),
+                cover_url=None,
+                platform="bilibili",
+                video_id=bvid,
+                raw_info={"id": bvid, "title": bvid, "bili_pages": page_meta},
+                video_path=None,
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def download_video(
         self,

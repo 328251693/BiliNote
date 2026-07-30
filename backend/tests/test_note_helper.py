@@ -30,6 +30,18 @@ class TestNoteHelper(unittest.TestCase):
 
         self.assertEqual(result, markdown)
 
+    def test_replace_content_marker_maps_to_the_matching_bilibili_page(self):
+        markdown = "重点 *Content-00:15* 和 *Content-00:03*"
+        pages = [
+            {"p": 1, "start_offset": 0, "end_offset": 10},
+            {"p": 2, "start_offset": 10, "end_offset": 30},
+        ]
+
+        result = note_helper.replace_content_markers(markdown, "BVtest", video_pages=pages)
+
+        self.assertIn("BVtest?p=2&t=5", result)
+        self.assertIn("BVtest?p=1&t=3", result)
+
 
 if __name__ == "__main__":
     unittest.main()
