@@ -14,7 +14,7 @@
 AI 字幕需要登录态 cookie（SESSDATA）；通过 CookieConfigManager 注入。
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import requests
 
@@ -46,34 +46,38 @@ class BilibiliSubtitleFetcher:
             h["Cookie"] = self._cookie
         return h
 
-    def _get_cid(self, bvid: str, p: Optional[int] = None) -> Optional[int]:
+    def get_pages(self, bvid: str) -> List[dict]:
+        """获取一个 BV 视频的全部分 P 信息。"""
         url = "https://api.bilibili.com/x/web-interface/view"
-        params = {"bvid": bvid}
-        if p is not None and p >= 1:
-            params["p"] = p
         try:
-            resp = requests.get(url, params=params, headers=self._headers(), timeout=10)
+            resp = requests.get(url, params={"bvid": bvid}, headers=self._headers(), timeout=10)
             data = resp.json()
         except Exception as e:
-            logger.warning(f"获取 cid 失败: {e}")
-            return None
+            logger.warning(f"获取 B 站分 P 信息失败: {e}")
+            return []
         if data.get("code") != 0:
             logger.warning(f"view API 返回错误: code={data.get('code')}, msg={data.get('message')}")
-            return None
-        # 分 P 视频：data.pages[N-1] 对应第 N 集
+            return []
+
+        video_data = data.get("data", {})
         pages = data.get("data", {}).get("pages", [])
         if pages:
-            if p is not None and 1 <= p <= len(pages):
-                cid = pages[p - 1].get("cid")
-                logger.info(f"分 P 视频: bvid={bvid} p={p} 共 {len(pages)} 集, 取第 {p} 集 cid={cid}")
-                return int(cid) if cid else None
-            else:
-                # 没有 p 参数或 p 超出范围，取第 1 集
-                cid = pages[0].get("cid")
-                logger.info(f"非分 P 或 p 无效: bvid={bvid} 取第 1 集 cid={cid}")
-                return int(cid) if cid else None
-        # 单集视频
-        cid = data.get("data", {}).get("cid")
+            return pages
+
+        cid = video_data.get("cid")
+        return [{"page": 1, "cid": cid, "part": video_data.get("title", ""),
+                 "duration": video_data.get("duration", 0)}] if cid else []
+
+    def _get_cid(self, bvid: str, p: Optional[int] = None) -> Optional[int]:
+        pages = self.get_pages(bvid)
+        if not pages:
+            return None
+        if p is not None and 1 <= p <= len(pages):
+            cid = pages[p - 1].get("cid")
+            logger.info(f"分 P 视频: bvid={bvid} p={p} 共 {len(pages)} 集, 取第 {p} 集 cid={cid}")
+        else:
+            cid = pages[0].get("cid")
+            logger.info(f"非分 P 或 p 无效: bvid={bvid} 取第 1 集 cid={cid}")
         return int(cid) if cid else None
 
     def _list_subtitles(self, bvid: str, cid: int) -> List[dict]:
@@ -125,35 +129,17 @@ class BilibiliSubtitleFetcher:
             logger.warning(f"下载字幕 JSON 失败: {e}")
             return None
 
-    def fetch_subtitles(self, video_url: str) -> Optional[TranscriptResult]:
-        # 统一 resolve 短链，避免 extract_video_id 和 extract_bilibili_p_number 各 resolve 一次
-        if "b23.tv" in video_url:
-            video_url = resolve_bilibili_short_url(video_url) or video_url
-
-        bvid = extract_video_id(video_url, "bilibili")
-        if not bvid:
-            logger.info("无法从 URL 提取 BV id")
-            return None
-
-        # 提取分 P 序号
-        p = extract_bilibili_p_number(video_url)
-
-        cid = self._get_cid(bvid, p)
-        if not cid:
-            logger.info(f"{bvid} (p={p}) 没有取到 cid")
-            return None
-
+    def _fetch_page_transcript(self, bvid: str, cid: int) -> Optional[Tuple[str, List[TranscriptSegment]]]:
+        """获取单个分 P 的字幕轨道和片段。"""
         subtitles = self._list_subtitles(bvid, cid)
         if not subtitles:
-            logger.info(f"{bvid} (cid={cid}) 没有可用字幕轨")
             return None
 
         track = self._pick(subtitles)
         if not track or not track.get("subtitle_url"):
-            logger.info(f"{bvid} 字幕轨存在但没有 subtitle_url（可能未登录、需要 SESSDATA cookie）")
             return None
 
-        lan = track.get("lan") or "zh"
+        language = track.get("lan") or "zh"
         body = self._fetch_body(track["subtitle_url"])
         if not body:
             return None
@@ -168,22 +154,87 @@ class BilibiliSubtitleFetcher:
                 end=float(item.get("to", 0)),
                 text=text,
             ))
+        return (language, segments) if segments else None
 
-        if not segments:
+    def _merge_pages(self, bvid: str, pages: List[dict], selected_p: Optional[int] = None) -> Optional[TranscriptResult]:
+        """按分 P 顺序合并字幕，并将时间戳转换为整套视频的连续时间。"""
+        if selected_p is not None:
+            pages = pages[selected_p - 1:selected_p] if 1 <= selected_p <= len(pages) else []
+
+        merged: List[TranscriptSegment] = []
+        page_meta = []
+        offset = 0.0
+        language = "zh"
+
+        for index, page in enumerate(pages, start=1):
+            cid = page.get("cid")
+            if not cid:
+                continue
+            result = self._fetch_page_transcript(bvid, int(cid))
+            duration = float(page.get("duration") or 0)
+            if result:
+                language, segments = result
+                for segment in segments:
+                    merged.append(TranscriptSegment(
+                        start=segment.start + offset,
+                        end=segment.end + offset,
+                        text=segment.text,
+                    ))
+                if not duration:
+                    duration = max((segment.end for segment in segments), default=0.0)
+            page_meta.append({
+                "p": int(page.get("page") or index),
+                "cid": int(cid),
+                "part": page.get("part") or "",
+                "duration": duration,
+                "start_offset": offset,
+                "end_offset": offset + duration,
+                "has_subtitle": bool(result),
+            })
+            offset += duration
+
+        if not merged:
             return None
 
-        full_text = " ".join(s.text for s in segments)
-        logger.info(f"B站直拉字幕成功: {bvid} p={p} lan={lan} 共 {len(segments)} 段")
+        missing = [item["p"] for item in page_meta if not item["has_subtitle"]]
+        if missing:
+            logger.warning("B 站多 P 视频有分 P 没有字幕，本次仅总结可用字幕: %s", missing)
+
         return TranscriptResult(
-            language=lan,
-            full_text=full_text,
-            segments=segments,
+            language=language,
+            full_text=" ".join(segment.text for segment in merged),
+            segments=merged,
             raw={
                 "source": "bilibili_player_api",
                 "bvid": bvid,
-                "cid": cid,
-                "p": p,
-                "lan": lan,
-                "ai_type": track.get("ai_type"),
+                "pages": page_meta,
+                "page_count": len(pages),
+                "merged_pages": len(page_meta) - len(missing),
             },
         )
+
+    def fetch_subtitles(self, video_url: str) -> Optional[TranscriptResult]:
+        # 统一 resolve 短链，避免 extract_video_id 和 extract_bilibili_p_number 各 resolve 一次
+        if "b23.tv" in video_url:
+            video_url = resolve_bilibili_short_url(video_url) or video_url
+
+        bvid = extract_video_id(video_url, "bilibili")
+        if not bvid:
+            logger.info("无法从 URL 提取 BV id")
+            return None
+
+        # 提取分 P 序号
+        p = extract_bilibili_p_number(video_url)
+
+        pages = self.get_pages(bvid)
+        transcript = self._merge_pages(bvid, pages, selected_p=p)
+        if transcript:
+            logger.info(
+                "B站直拉字幕成功: %s %s 共 %s 段",
+                bvid,
+                f"p={p}" if p is not None else f"全部 {len(pages)} P",
+                len(transcript.segments),
+            )
+        else:
+            logger.info(f"{bvid} (p={p}) 没有可用字幕轨")
+        return transcript

@@ -644,7 +644,12 @@ class NoteGenerator:
 
         if "link" in formats:
             try:
-                markdown = replace_content_markers(markdown, video_id=audio_meta.video_id, platform=platform)
+                markdown = replace_content_markers(
+                    markdown,
+                    video_id=audio_meta.video_id,
+                    platform=platform,
+                    video_pages=(audio_meta.raw_info or {}).get("bili_pages"),
+                )
             except Exception as e:
                 logger.warning(f"链接插入失败，跳过该步骤：{e}")
 
