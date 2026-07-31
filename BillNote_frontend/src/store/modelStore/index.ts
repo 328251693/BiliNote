@@ -18,10 +18,14 @@ interface IModel {
 }
 
 interface IModelListItem {
-  id: string
+  id: number
   provider_id: string
   model_name: string
   created_at?: string
+}
+
+type RemoteModelsResponse = {
+  models?: IModel[] | { data?: IModel[] }
 }
 
 interface ModelStore {
@@ -40,35 +44,39 @@ interface ModelStore {
 }
 
 export const useModelStore = create<ModelStore>()(
-  devtools((set) => ({
+  devtools((set, get) => ({
     models: [],
     modelList: [],
     loading: false,
     selectedModel: '',
 
-    //  获取所有可用模型 (全局可用模型列表)
+    //  ???????? (????????)
     loadEnabledModels: async () => {
       try {
         set({ loading: true })
-        const list = await fetchEnableModels()
+        const list = await fetchEnableModels() as unknown as IModelListItem[]
         set({ modelList: list })
       } catch (error) {
         set({ modelList: [] })
-        console.error('加载可用模型失败', error)
+        console.error('????????', error)
       } finally {
         set({ loading: false })
       }
     },
 
-    //  通过 provider 获取该供应商的模型列表
+    //  ?? provider ???????????
     loadModels: async (providerId: string) => {
+      if (!providerId) {
+        set({ models: [] })
+        return
+      }
       try {
         set({ loading: true })
-        const res = await fetchModels(providerId)
+        const res = await fetchModels(providerId) as unknown as RemoteModelsResponse
 
         let models: IModel[] = []
 
-        // 兼容 SyncPage 分页对象与普通数组两种格式
+        // ?? SyncPage ?????????????
         if (Array.isArray(res.models)) {
           models = res.models
         } else if (res.models?.data && Array.isArray(res.models.data)) {
@@ -78,69 +86,56 @@ export const useModelStore = create<ModelStore>()(
         set({ models })
       } catch (error) {
         set({ models: [] })
-        console.error('加载模型列表失败', error)
+        console.error('????????', error)
       } finally {
         set({ loading: false })
       }
     },
 
-    //  单独获取某个供应商下已启用模型
+    //  ???????????????
     loadModelsById: async (providerId: string) => {
+      if (!providerId) return []
       try {
-        const models = await fetchEnableModelById(providerId)
-        console.log('获取供应商模型成功:', models)
+        const models = await fetchEnableModelById(providerId) as unknown as IModelListItem[]
+        console.log('?????????:', models)
         return models
       } catch (error) {
-        console.error('加载供应商模型失败', error)
+        console.error('?????????', error)
         return []
       }
     },
 
-    //  新增模型逻辑
+    //  ??????
     addNewModel: async (providerId: string, modelId: string) => {
+      if (!providerId || !modelId) throw new Error('??????????')
       try {
-        const res = await addModel({ provider_id: providerId, model_name: modelId })
-
-        if (res.code === 0) {
-          console.log('新增模型成功:', modelId)
-          set((state) => ({
-            models: [
-              ...state.models,
-              {
-                id: modelId,
-                created: Date.now(),
-                object: 'model',
-                owned_by: '',
-                permission: '',
-                root: '',
-              },
-            ],
-          }))
-        } else {
-          console.error('新增模型失败', res.msg)
-        }
+        // request ????????????? data ????????????
+        await addModel({ provider_id: providerId, model_name: modelId })
+        console.log('??????:', modelId)
+        await get().loadModels(providerId)
       } catch (error) {
-        console.error('添加模型出错', error)
+        console.error('??????', error)
+        throw error
       }
     },
 
-    //  删除模型
+    //  ????
     deleteModel: async (modelId: number) => {
       try {
         await deleteModelById(modelId)
-        //  删除后更新本地状态（可选）
+        //  ?????????????
         set((state) => ({
           models: state.models.filter((model) => model.id !== modelId.toString())
         }))
       } catch (error) {
-        console.error('删除模型失败', error)
+        console.error('??????', error)
       }
     },
 
-    //  切换选中模型
+    //  ??????
     setSelectedModel: (modelId: string) => set({ selectedModel: modelId }),
 
-    //  清空
+    //  ??
     clearModels: () => set({ models: [], selectedModel: '', modelList: [] }),
   }))
 )
