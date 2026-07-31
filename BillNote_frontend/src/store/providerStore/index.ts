@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { IProvider, IResponse } from '@/types'
+import { IProvider } from '@/types'
 import {
   addProvider,
   getProviderById,
@@ -7,22 +7,32 @@ import {
   updateProviderById,
 } from '@/services/model.ts'
 
+type BackendProvider = {
+  id: string
+  name: string
+  logo?: string
+  api_key?: string
+  base_url?: string
+  type: string
+  enabled?: number
+}
+
 interface ProviderStore {
   provider: IProvider[]
   setProvider: (provider: IProvider) => void
   setAllProviders: (providers: IProvider[]) => void
-  getProviderById: (id: number) => IProvider | undefined
+  getProviderById: (id: string) => IProvider | undefined
   getProviderList: () => IProvider[]
   fetchProviderList: () => Promise<void>
-  loadProviderById: (id: string) => Promise<void>
-  addNewProvider: (provider: IProvider) => Promise<void>
-  updateProvider: (provider: IProvider) => Promise<void>
+  loadProviderById: (id: string) => Promise<IProvider>
+  addNewProvider: (provider: Pick<IProvider, 'name' | 'apiKey' | 'baseUrl' | 'type'>) => Promise<IProvider>
+  updateProvider: (provider: Pick<IProvider, 'id'> & Partial<Omit<IProvider, 'id'>>) => Promise<void>
 }
 
 export const useProviderStore = create<ProviderStore>((set, get) => ({
   provider: [],
 
-  // 添加或更新一个 provider
+  // ??????? provider
   setProvider: newProvider =>
     set(state => {
       const exists = state.provider.find(p => p.id === newProvider.id)
@@ -35,45 +45,51 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
       }
     }),
 
-  // 设置整个 provider 列表
+  // ???? provider ??
   setAllProviders: providers => set({ provider: providers }),
   loadProviderById: async (id: string) => {
-    const res:IResponse<IProvider> = await getProviderById(id)
-
-      const item = res
-      return {
-        id: item.id,
-        name: item.name,
-        logo: item.logo,
-        apiKey: item.api_key,
-        baseUrl: item.base_url,
-        type: item.type,
-        enabled: item.enabled,
-      }
-
+    const item = await getProviderById(id) as unknown as BackendProvider
+    return {
+      id: item.id,
+      name: item.name,
+      logo: item.logo ?? 'custom',
+      apiKey: item.api_key ?? '',
+      baseUrl: item.base_url ?? '',
+      type: item.type,
+      enabled: item.enabled ?? 1,
+    }
   },
-  addNewProvider: async (provider: IProvider) => {
+  addNewProvider: async (provider) => {
     const payload = {
       ...provider,
       api_key: provider.apiKey,
       base_url: provider.baseUrl,
     }
     try {
-      const res = await addProvider(payload)
-      if (res.data.code === 0) {
-        const item = res.data.data
-        console.log('Provider ', item)
+      // request ?????? { code, msg, data } ??? data?
+      // add_provider ? data ????? ID?????? Axios ???
+      const created = await addProvider(payload) as unknown as string | { id?: string }
+      const id = typeof created === 'string' ? created : created.id
+      if (!id) throw new Error('??????????? ID')
 
-        await get().fetchProviderList()
-        return  item
+      await get().fetchProviderList()
+      return {
+        id,
+        name: provider.name,
+        logo: 'custom',
+        apiKey: provider.apiKey,
+        baseUrl: provider.baseUrl,
+        type: provider.type,
+        enabled: 1,
       }
     } catch (error) {
       console.error('Error fetching provider:', error)
+      throw error
     }
   },
-  // 按 id 获取单个 provider
+  // ? id ???? provider
   getProviderById: id => get().provider.find(p => p.id === id),
-  updateProvider: async (provider: IProvider) => {
+  updateProvider: async (provider) => {
     try {
       const existing = get().provider.find(p => p.id === provider.id)
       const merged = { ...existing, ...provider }
@@ -83,7 +99,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
         api_key: merged.apiKey,
         base_url: merged.baseUrl,
       }
-      // 拦截器已解包：成功时直接返回 data 部分
+      // ?????????????? data ??
       await updateProviderById(data)
       await get().fetchProviderList()
     } catch (error) {
@@ -93,27 +109,19 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
   getProviderList: () => get().provider,
   fetchProviderList: async () => {
     try {
-      const res  = await getProviderList()
+      const res = await getProviderList() as unknown as BackendProvider[]
 
         set({
           provider: res.map(
-            (item: {
-              id: string
-              name: string
-              logo: string
-              api_key: string
-              base_url: string
-              type: string
-              enabled: number
-            }) => {
+            (item: BackendProvider) => {
               return {
                 id: item.id,
                 name: item.name,
-                logo: item.logo,
-                apiKey: item.api_key,
-                baseUrl: item.base_url,
+                logo: item.logo ?? 'custom',
+                apiKey: item.api_key ?? '',
+                baseUrl: item.base_url ?? '',
                 type: item.type,
-                enabled: item.enabled,
+                enabled: item.enabled ?? 1,
               }
             }
           ),

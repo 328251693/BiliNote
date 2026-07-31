@@ -12,10 +12,11 @@ import { Button } from '@/components/ui/button'
 import toast from 'react-hot-toast'
 
 interface ModelSelectorProps {
-  providerId: string
+  providerId?: string
+  onSaved?: () => void | Promise<void>
 }
 
-export function ModelSelector({ providerId }: ModelSelectorProps) {
+export function ModelSelector({ providerId, onSaved }: ModelSelectorProps) {
   const { models, loading, selectedModel, loadModels, setSelectedModel, addNewModel } =
     useModelStore()
   const [search, setSearch] = useState('')
@@ -28,22 +29,28 @@ export function ModelSelector({ providerId }: ModelSelectorProps) {
   })
 
   useEffect(() => {
+    setSelectedModel('')
     if (providerId) {
       loadModels(providerId)
     }
-  }, [providerId])
+  }, [providerId, loadModels, setSelectedModel])
 
   const handleSubmit = async () => {
+    if (!providerId) {
+      toast.error('???????')
+      return
+    }
     if (!selectedModel) {
-      toast.error('请选择一个模型')
+      toast.error('???????')
       return
     }
     try {
       setSubmitting(true)
       await addNewModel(providerId, selectedModel)
-      toast.success('保存模型成功 🎉')
-    } catch (error) {
-      toast.error('保存失败')
+      await onSaved?.()
+      toast.success('?????? ??')
+    } catch {
+      toast.error('????')
     } finally {
       setSubmitting(false)
     }
@@ -52,25 +59,25 @@ export function ModelSelector({ providerId }: ModelSelectorProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2 font-bold">
-        <span>选择模型</span>
+        <span>????</span>
         <Button
           variant="ghost"
           type="button"
-          onClick={() => loadModels(providerId)}
+          onClick={() => providerId && loadModels(providerId)}
           disabled={loading}
         >
-          {loading ? '加载中...' : '刷新模型'}
+          {loading ? '???...' : '????'}
         </Button>
       </div>
 
       <Select value={selectedModel} onValueChange={setSelectedModel}>
         <SelectTrigger className="w-[300px]">
-          <SelectValue placeholder="请选择模型" />
+          <SelectValue placeholder="?????" />
         </SelectTrigger>
         <SelectContent>
           <div className="p-2">
             <Input
-              placeholder="搜索模型..."
+              placeholder="????..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="h-8"
@@ -85,7 +92,7 @@ export function ModelSelector({ providerId }: ModelSelectorProps) {
       </Select>
 
       <Button onClick={handleSubmit} disabled={submitting || !selectedModel}>
-        {submitting ? '保存中...' : '保存模型'}
+        {submitting ? '???...' : '????'}
       </Button>
     </div>
   )
