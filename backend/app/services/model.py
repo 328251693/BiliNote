@@ -34,10 +34,10 @@ class ModelService:
             gpt = GPTFactory().from_config(config)
             models = gpt.list_models()
             if verbose:
-                print(f"[{provider['name']}] ????: {models}")
+                print(f"[{provider['name']}] 模型列表: {models}")
             return models
         except Exception as e:
-            print(f"[{provider['name']}] ??????: {e}")
+            print(f"[{provider['name']}] 获取模型失败: {e}")
             return []
 
     @staticmethod
@@ -45,25 +45,25 @@ class ModelService:
         try:
             raw_models = get_all_models()
             if verbose:
-                print(f"??????: {raw_models}")
+                print(f"所有模型列表: {raw_models}")
             return ModelService._format_models(raw_models)
         except Exception as e:
-            print(f"????????: {e}")
+            print(f"获取所有模型失败: {e}")
             return []
     @staticmethod
     def get_all_models_safe(verbose: bool = False):
         try:
             raw_models = get_all_models()
             if verbose:
-                print(f"??????: {raw_models}")
+                print(f"所有模型列表: {raw_models}")
             return ModelService._format_models(raw_models)
         except Exception as e:
-            print(f"????????: {e}")
+            print(f"获取所有模型失败: {e}")
             return []
     @staticmethod
     def _format_models(raw_models: list) -> list:
         """
-        ???????
+        格式化模型列表
         """
         formatted = []
         for model in raw_models:
@@ -71,7 +71,7 @@ class ModelService:
                 "id": model.get("id"),
                 "provider_id": model.get("provider_id"),
                 "model_name": model.get("model_name"),
-                "created_at": model.get("created_at", None),  # ???created_at??
+                "created_at": model.get("created_at", None),  # 如果有created_at字段
             })
         return formatted
     @staticmethod
@@ -109,20 +109,20 @@ class ModelService:
                 else:
                     serializable_models.append({"id": getattr(model, "id", str(model))})
 
-            logger.info(f"[{provider['name']}] ??????")
+            logger.info(f"[{provider['name']}] 获取模型成功")
             return {"models": serializable_models}
         except Exception as e:
-            # print(f"[{provider_id}] ??????: {e}")
-            logger.error(f"[{provider_id}] ??????: {e}")
+            # print(f"[{provider_id}] 获取模型失败: {e}")
+            logger.error(f"[{provider_id}] 获取模型失败: {e}")
             return {"models": []}
     @staticmethod
     def connect_test(id: str, model: str | None = None) -> bool:
-        """???????????? chat completion?
+        """连通性测试：发一条最小化 chat completion。
 
-        model ????
-          1. ??????????????????UI ???????
-          2. DB ?? provider ?????????
-          3. ??? ? ???????????
+        model 优先级：
+          1. 调用方显式传入（前端可在「模型选择」UI 里挑一个再测）
+          2. DB 中该 provider 已保存的第一个模型
+          3. 都没有 → 抛错让用户先加一个模型
         """
         provider = ProviderService.get_provider_by_id(id)
         if not provider:
@@ -141,7 +141,7 @@ class ModelService:
             if not saved_models:
                 raise ProviderError(
                     code=ProviderErrorEnum.WRONG_PARAMETER.code,
-                    message="?????????????????????",
+                    message="请先为该供应商添加至少一个模型再测试连通性",
                 )
             model = saved_models[0]["model_name"]
 
@@ -170,29 +170,29 @@ class ModelService:
     @staticmethod
     def add_new_model(provider_id: int, model_name: str) -> bool:
         try:
-            # ?????????
+            # 先查供应商是否存在
             provider = ProviderService.get_provider_by_id(provider_id)
             if not provider:
-                print(f"???ID {provider_id} ??????????")
+                print(f"供应商ID {provider_id} 不存在，无法添加模型")
                 return False
 
-            # ???????????
+            # 查询是否已存在同名模型
             existing = get_model_by_provider_and_name(provider_id, model_name)
             if existing:
-                print(f"?? {model_name} ???????ID {provider_id} ??????")
+                print(f"模型 {model_name} 已存在于供应商ID {provider_id} 下，跳过插入")
                 return False
 
-            # ????
+            # 插入模型
             insert_model(provider_id=provider_id, model_name=model_name)
-            print(f"?? {model_name} ?????????ID {provider_id}")
+            print(f"模型 {model_name} 已成功添加到供应商ID {provider_id}")
             return True
         except Exception as e:
-            print(f"??????: {e}")
+            print(f"添加模型失败: {e}")
             return False
 
 if __name__ == '__main__':
-    # ?? Provider ??
+    # 单个 Provider 测试
     print(ModelService.get_model_list(1, verbose=True))
 
-    # ?? Provider ????
+    # 所有 Provider 模型测试
     # print(ModelService.get_all_models(verbose=True))

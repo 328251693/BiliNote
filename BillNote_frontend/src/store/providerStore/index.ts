@@ -32,7 +32,7 @@ interface ProviderStore {
 export const useProviderStore = create<ProviderStore>((set, get) => ({
   provider: [],
 
-  // ??????? provider
+  // 添加或更新一个 provider
   setProvider: newProvider =>
     set(state => {
       const exists = state.provider.find(p => p.id === newProvider.id)
@@ -45,7 +45,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
       }
     }),
 
-  // ???? provider ??
+  // 设置整个 provider 列表
   setAllProviders: providers => set({ provider: providers }),
   loadProviderById: async (id: string) => {
     const item = await getProviderById(id) as unknown as BackendProvider
@@ -66,11 +66,11 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
       base_url: provider.baseUrl,
     }
     try {
-      // request ?????? { code, msg, data } ??? data?
-      // add_provider ? data ????? ID?????? Axios ???
+      // request 拦截器已经把 { code, msg, data } 解包成 data。
+      // add_provider 的 data 是新供应商 ID，而不是完整 Axios 响应。
       const created = await addProvider(payload) as unknown as string | { id?: string }
       const id = typeof created === 'string' ? created : created.id
-      if (!id) throw new Error('??????????? ID')
+      if (!id) throw new Error('创建供应商成功但未返回 ID')
 
       await get().fetchProviderList()
       return {
@@ -87,7 +87,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
       throw error
     }
   },
-  // ? id ???? provider
+  // 按 id 获取单个 provider
   getProviderById: id => get().provider.find(p => p.id === id),
   updateProvider: async (provider) => {
     try {
@@ -99,7 +99,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
         api_key: merged.apiKey,
         base_url: merged.baseUrl,
       }
-      // ?????????????? data ??
+      // 拦截器已解包：成功时直接返回 data 部分
       await updateProviderById(data)
       await get().fetchProviderList()
     } catch (error) {

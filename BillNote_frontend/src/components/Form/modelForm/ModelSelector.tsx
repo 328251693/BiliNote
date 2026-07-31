@@ -37,20 +37,20 @@ export function ModelSelector({ providerId, onSaved }: ModelSelectorProps) {
 
   const handleSubmit = async () => {
     if (!providerId) {
-      toast.error('???????')
+      toast.error('请先保存供应商')
       return
     }
     if (!selectedModel) {
-      toast.error('???????')
+      toast.error('请选择一个模型')
       return
     }
     try {
       setSubmitting(true)
       await addNewModel(providerId, selectedModel)
       await onSaved?.()
-      toast.success('?????? ??')
+      toast.success('保存模型成功 🎉')
     } catch {
-      toast.error('????')
+      toast.error('保存失败')
     } finally {
       setSubmitting(false)
     }
@@ -59,25 +59,25 @@ export function ModelSelector({ providerId, onSaved }: ModelSelectorProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2 font-bold">
-        <span>????</span>
+        <span>选择模型</span>
         <Button
           variant="ghost"
           type="button"
           onClick={() => providerId && loadModels(providerId)}
           disabled={loading}
         >
-          {loading ? '???...' : '????'}
+          {loading ? '加载中...' : '刷新模型'}
         </Button>
       </div>
 
       <Select value={selectedModel} onValueChange={setSelectedModel}>
         <SelectTrigger className="w-[300px]">
-          <SelectValue placeholder="?????" />
+          <SelectValue placeholder="请选择模型" />
         </SelectTrigger>
         <SelectContent>
           <div className="p-2">
             <Input
-              placeholder="????..."
+              placeholder="搜索模型..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="h-8"
@@ -92,7 +92,7 @@ export function ModelSelector({ providerId, onSaved }: ModelSelectorProps) {
       </Select>
 
       <Button onClick={handleSubmit} disabled={submitting || !selectedModel}>
-        {submitting ? '???...' : '????'}
+        {submitting ? '保存中...' : '保存模型'}
       </Button>
     </div>
   )

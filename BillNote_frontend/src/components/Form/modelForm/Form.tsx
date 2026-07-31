@@ -20,22 +20,22 @@ import { ModelSelector } from '@/components/Form/modelForm/ModelSelector.tsx'
 import { X } from 'lucide-react'
 import { useModelStore } from '@/store/modelStore'
 
-// ? Provider??schema
+// ✅ Provider表单schema
 const ProviderSchema = z.object({
-  name: z.string().min(2, '?????? 2 ???'),
-  apiKey: z.string().min(1, '??? API Key'),
-  baseUrl: z.string().url('????? URL'),
+  name: z.string().min(2, '名称不能少于 2 个字符'),
+  apiKey: z.string().min(1, '请填写 API Key'),
+  baseUrl: z.string().url('必须是合法 URL'),
   type: z.string(),
 })
 
 type ProviderFormValues = z.infer<typeof ProviderSchema>
 
 const getErrorMessage = (error: unknown) => {
-  if (typeof error !== 'object' || error === null) return '????'
+  if (typeof error !== 'object' || error === null) return '未知错误'
   const value = error as { msg?: unknown; data?: { msg?: unknown } }
   if (typeof value.msg === 'string') return value.msg
   if (typeof value.data?.msg === 'string') return value.data.msg
-  return '????'
+  return '未知错误'
 }
 
 interface EnabledModel {
@@ -93,7 +93,7 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
     }
 
     load().catch(error => {
-      console.error('???????', error)
+      console.error('加载供应商失败', error)
       if (active) setLoading(false)
     })
 
@@ -108,29 +108,29 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
   }
 
   const handelDelete = async (modelId: number) => {
-    if (!window.confirm('???????????')) return
+    if (!window.confirm('确定要删除这个模型吗？')) return
 
     try {
       const res = await deleteModelById(modelId)
-      console.log('?? ????:', res)
+      console.log('🔧 删除结果:', res)
 
-      toast.success('????')
+      toast.success('删除成功')
       if (id) await refreshEnabledModels(id)
 
     } catch {
-      toast.error('????')
+      toast.error('删除异常')
     }
   }
-  // ?????
+  // 测试连通性
   const handleTest = async () => {
     const values = providerForm.getValues()
     if (!values.apiKey || !values.baseUrl) {
-      toast.error('??? API Key ? Base URL')
+      toast.error('请填写 API Key 和 Base URL')
       return
     }
     try {
       if (!id){
-        toast.error('?????????')
+        toast.error('请先保存供应商信息')
         return
       }
       setTesting(true)
@@ -138,16 +138,16 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
              id
           })
 
-        toast.success('??????? ??')
+        toast.success('测试连通性成功 🎉')
 
     } catch (error) {
-      toast.error(`????: ${getErrorMessage(error)}`)
+      toast.error(`连接失败: ${getErrorMessage(error)}`)
     } finally {
       setTesting(false)
     }
   }
 
-  // ??Provider??
+  // 保存Provider信息
   const onProviderSubmit = async (values: ProviderFormValues) => {
     if (savingProvider) return
     setSavingProvider(true)
@@ -155,35 +155,35 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
       if (isEditMode && id) {
         await updateProvider({ ...values, id })
         providerForm.reset(values)
-        toast.success('???????')
+        toast.success('更新供应商成功')
       } else {
         const created = await addNewProvider(values)
-        toast.success('???????')
+        toast.success('新增供应商成功')
         navigate(`/settings/model/${created.id}`, { replace: true })
       }
     } catch (error) {
-      toast.error(getErrorMessage(error) || '???????')
+      toast.error(getErrorMessage(error) || '保存供应商失败')
     } finally {
       setSavingProvider(false)
     }
   }
 
-  if (loading) return <div className="p-4">???...</div>
+  if (loading) return <div className="p-4">加载中...</div>
 
   return (
     <div className="flex flex-col gap-8 p-4">
-      {/* Provider???? */}
+      {/* Provider信息表单 */}
       <Form {...providerForm}>
         <form
           onSubmit={providerForm.handleSubmit(onProviderSubmit)}
           className="flex max-w-xl flex-col gap-4"
         >
           <div className="text-lg font-bold">
-            {isEditMode ? '???????' : '???????'}
+            {isEditMode ? '编辑模型供应商' : '新增模型供应商'}
           </div>
           {!isBuiltIn && (
             <div className="text-sm text-red-500 italic">
-              ?????????????? OpenAI SDK
+              自定义模型供应商需要确保兼容 OpenAI SDK
             </div>
           )}
           <FormField
@@ -191,7 +191,7 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
             name="name"
             render={({ field }) => (
               <FormItem className="flex items-center gap-4">
-                <FormLabel className="w-24 text-right">??</FormLabel>
+                <FormLabel className="w-24 text-right">名称</FormLabel>
                 <FormControl>
                   <Input {...field} disabled={isBuiltIn} className="flex-1" />
                 </FormControl>
@@ -217,12 +217,12 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
             name="baseUrl"
             render={({ field }) => (
               <FormItem className="flex items-center gap-4">
-                <FormLabel className="w-24 text-right">API??</FormLabel>
+                <FormLabel className="w-24 text-right">API地址</FormLabel>
                 <FormControl>
                   <Input {...field} className="flex-1" />
                 </FormControl>
                 <Button type="button" onClick={handleTest} variant="ghost" disabled={testing}>
-                  {testing ? '???...' : '?????'}
+                  {testing ? '测试中...' : '测试连通性'}
                 </Button>
                 <FormMessage />
               </FormItem>
@@ -233,7 +233,7 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
             name="type"
             render={({ field }) => (
               <FormItem className="flex items-center gap-4">
-                <FormLabel className="w-24 text-right">??</FormLabel>
+                <FormLabel className="w-24 text-right">类型</FormLabel>
                 <FormControl>
                   <Input {...field} disabled className="flex-1" />
                 </FormControl>
@@ -243,19 +243,19 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
           />
           <div className="pt-2">
             <Button type="submit" disabled={savingProvider || !providerForm.formState.isDirty}>
-              {savingProvider ? '???...' : isEditMode ? '????' : '????'}
+              {savingProvider ? '保存中...' : isEditMode ? '保存修改' : '保存创建'}
             </Button>
           </div>
         </form>
       </Form>
 
-      {/* ?????? */}
+      {/* 模型信息表单 */}
       <div className="flex max-w-xl flex-col gap-4">
         <div className="flex flex-col gap-2">
-          <span className="font-bold">????</span>
+          <span className="font-bold">模型列表</span>
           <div className={'flex flex-col gap-2 rounded bg-[#FEF0F0] p-2.5'}>
-            <h2 className={'font-bold'}>??!</h2>
-            <span>????????????,?????????.</span>
+            <h2 className={'font-bold'}>注意!</h2>
+            <span>请确保已经保存供应商信息,以及通过测试连通性.</span>
           </div>
           {id ? (
             <ModelSelector
@@ -263,7 +263,7 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
               onSaved={() => refreshEnabledModels(id)}
             />
           ) : (
-            <div className="text-sm text-neutral-500">??????????????</div>
+            <div className="text-sm text-neutral-500">请先保存供应商，再添加模型。</div>
           )}
 
           {/*<datalist id="model-options">*/}
@@ -273,7 +273,7 @@ const ProviderForm = ({ isCreate = false }: { isCreate?: boolean }) => {
           {/*</datalist>*/}
         </div>
         <div className="flex flex-col gap-2">
-          <span className="font-bold">?????</span>
+          <span className="font-bold">已启用模型</span>
           <div className={'flex flex-wrap gap-2 rounded  p-2.5'}>
             {
               models && models.map(model => {
