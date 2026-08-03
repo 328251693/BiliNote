@@ -1,6 +1,6 @@
 from pydantic import AnyUrl, validator, BaseModel, field_validator
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 SUPPORTED_PLATFORMS = {
     "bilibili": r"(https?://)?(www\.)?bilibili\.com/video/[a-zA-Z0-9]+",
@@ -17,7 +17,21 @@ def is_supported_video_url(url: str) -> bool:
     if parsed.netloc == "b23.tv":
         return True
 
+    # YouTube 分享链接的查询参数顺序不固定，不能只用 watch?v= 的正则判断。
+    host = parsed.netloc.lower().split(":", 1)[0]
+    path = parsed.path.rstrip("/")
+    if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
+        query = parse_qs(parsed.query)
+        if path == "/watch" and re.fullmatch(r"[\w-]{11}", query.get("v", [""])[0]):
+            return True
+        if re.fullmatch(r"/(shorts|embed|live)/[\w-]{11}", path):
+            return True
+    if host == "youtu.be" and re.fullmatch(r"/[\w-]{11}", path):
+        return True
+
     for name, pattern in SUPPORTED_PLATFORMS.items():
+        if name == "youtube":
+            continue
         if pattern in ["douyin", "kuaishou"]:
             if pattern in url:
                 return True
