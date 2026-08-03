@@ -29,8 +29,11 @@ class TestVideoUrlSupport(unittest.TestCase):
 
         cases = [
             f"https://www.youtube.com/watch?v={expected_id}",
+            f"https://www.youtube.com/watch?si=tracking-token&v={expected_id}",
             f"https://youtu.be/{expected_id}",
             f"https://www.youtube.com/shorts/{expected_id}",
+            f"https://www.youtube.com/embed/{expected_id}",
+            f"https://www.youtube.com/live/{expected_id}",
         ]
 
         for url in cases:
@@ -42,6 +45,11 @@ class TestVideoUrlSupport(unittest.TestCase):
 
     def test_accepts_youtube_shorts_url(self):
         url = "https://www.youtube.com/shorts/dQw4w9WgXcQ"
+
+        self.assertTrue(video_url_validator.is_supported_video_url(url))
+
+    def test_accepts_youtube_share_url_with_tracking_parameter_before_video_id(self):
+        url = "https://www.youtube.com/watch?si=tracking-token&v=dQw4w9WgXcQ"
 
         self.assertTrue(video_url_validator.is_supported_video_url(url))
 

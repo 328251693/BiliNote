@@ -276,12 +276,32 @@ class BilibiliDownloader(Downloader, ABC):
         :return: TranscriptResult 或 None
         """
         # 1) 优先走 B 站官方 player API（直拉，无需下视频；AI 字幕需 SESSDATA cookie）
+        fetcher = BilibiliSubtitleFetcher()
         try:
-            result = BilibiliSubtitleFetcher().fetch_subtitles(video_url)
+            result = fetcher.fetch_subtitles(video_url)
             if result and result.segments:
+                page_count = int((result.raw or {}).get("page_count") or 0)
+                merged_pages = int((result.raw or {}).get("merged_pages") or 0)
+                if page_count > 1 and merged_pages < page_count:
+                    # 只拿到部分章节时不能直接返回，否则后续流程会误判为字幕完整。
+                    logger.warning(
+                        "B站多 P 字幕不完整（%s/%s），跳过 yt-dlp 首 P 字幕，改用全章节音频转写",
+                        merged_pages,
+                        page_count,
+                    )
+                    return None
                 return result
         except Exception as e:
             logger.warning(f"player API 直拉字幕异常，回退到 yt-dlp: {e}")
+
+        # yt-dlp 对不带 p 参数的多 P 链接通常只返回首 P；已知是多 P 时不能使用这个兜底。
+        # 否则前端看到的是成功结果，但内容实际只覆盖第一章。
+        bvid = extract_video_id(video_url, "bilibili")
+        if bvid and extract_bilibili_p_number(video_url) is None:
+            pages = fetcher.get_pages(bvid)
+            if len(pages) > 1:
+                logger.warning("B站多 P 链接跳过 yt-dlp 单 P 字幕兜底，将转写合并后的全章节音频")
+                return None
 
         # 2) Fallback：原 yt-dlp 路径（更脆弱，遇到签名/Cookie 问题失败概率较高）
         if output_dir is None:

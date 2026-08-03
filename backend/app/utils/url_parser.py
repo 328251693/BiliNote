@@ -1,5 +1,6 @@
 import re
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 import requests
 
 
@@ -23,9 +24,23 @@ def extract_video_id(url: str, platform: str) -> Optional[str]:
         return f"BV{match.group(1)}" if match else None
 
     elif platform == "youtube":
-        # 匹配 v=xxxxx、youtu.be/xxxxx 或 shorts/xxxxx，ID 长度通常为 11
-        match = re.search(r"(?:v=|youtu\.be/|shorts/)([0-9A-Za-z_-]{11})", url)
-        return match.group(1) if match else None
+        parsed = urlparse(url)
+        host = parsed.netloc.lower().split(":", 1)[0]
+        path = parsed.path.rstrip("/")
+
+        if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
+            if path == "/watch":
+                video_id = parse_qs(parsed.query).get("v", [""])[0]
+                return video_id if re.fullmatch(r"[0-9A-Za-z_-]{11}", video_id) else None
+
+            match = re.fullmatch(r"/(?:shorts|embed|live)/([0-9A-Za-z_-]{11})", path)
+            return match.group(1) if match else None
+
+        if host == "youtu.be":
+            match = re.fullmatch(r"/([0-9A-Za-z_-]{11})", path)
+            return match.group(1) if match else None
+
+        return None
 
     elif platform == "douyin":
         # 匹配 douyin.com/video/1234567890123456789
